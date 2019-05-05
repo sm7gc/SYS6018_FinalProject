@@ -20,7 +20,7 @@ knitr::opts_chunk$set(error=TRUE,        # Keep compiling upon error
                       comment = "#>",    # change comment character
                       fig.align='center',
                       # fig.width = 5,     # set figure width
-                      # out.width = "50%", # set width of displayed images
+                      out.width = "100%", # set width of displayed images
                       warning=FALSE,     # do not show R warnings
                       message=FALSE)     # do not show R messages
 ```
@@ -35,14 +35,24 @@ But how do you take location data, and visualize it in a way that makes it possi
 Clearly, we need a more logical way to find points that an individual might consider significant is to look at where the individual spends her time. For example, the figure on the right shows a logical representation of the location data, where locations have been clustered into logical places. Here, the size of the clusters show how much time you spent in a particular logical place --you spent a lot of time in the CS building and at the Dorm. The lines between the clusters show how you typically moved between places --you typically go from your Dorm to Amherst downtown rather than from the CS department to Amherst downtown. Once you have such a representation, you can overlay the data with information about other parameters like heart rate (higher at the gym, presumably), and so on. But how do we go from the raw data plotted on the left to the logical place representation shown on the right? In this chapter, we provide some ideas on how to cluster raw GPS data into meaningful places.
 
 
-# Intro
+## Data Preparation
 
+### Required Packages
 
-```{r}
+```{r }
 library(tidyverse)
 library(leaflet)
 library(dbscan)
 ```
+
+```{r echo=FALSE}
+library(RColorBrewer)
+col = colorRampPalette(brewer.pal(n = 9, name = "Set1"))(15)
+```
+
+### Data Import
+
+The data used in this tutorial comes from the Microsoft GeoLife Dataset.
 
 ```{r}
 file_list <- list.files("~/Downloads/Geolife Trajectories 1.3/Data/000/Trajectory", full=T)
@@ -53,8 +63,8 @@ df <- do.call(rbind, file_con)[-3]
 colnames(df) <- c("Latitude","Longitude","Altitude","Days.Since.18991230","Date","Time")
 ```
 
-```{r, echo=FALSE, results='asis'}
-knitr::kable(head(df, 10)) 
+```{r, echo=FALSE}
+# knitr::kable(head(df, 10)) 
 ```
 
 ```{r, echo=FALSE}
@@ -75,13 +85,13 @@ base.map %>%
 ```
 
 
-```{r echo=FALSE}
-library(RColorBrewer)
-col = colorRampPalette(brewer.pal(n = 9, name = "Set1"))(15)
-```
+## Spatial Clustering
+
+In the context of statistics and machine learning, clustering is the process of grouping similar observations together into clusters such that similarity within groups is maximized and similarity between groups is minimized. There are a wide variety of algorithms for clustering, which typically rely on some measure of distance or dissimilarity between observations. In the case of spatial point data, the obvious choice is to cluster based on the actual physical distance between the points, i.e. group close points together. R has a variety of methods for this task, I demonstrate two: hierarchical clustering and DBSCAN.
 
 
-## K-Means
+
+### K-Means
 
 ```{r}
 kclust <- kmeans(loc_df[,c(1,2)],5)
@@ -107,20 +117,27 @@ base.map %>%
 
 
 
-## DBSCAN
+### DBSCAN
+
+Density-based spatial clustering of applications with noise (DBSCAN) is a density-based clustering algorithm, meaning that clusters are defined as contiguous areas of high density. This is in contrast to methods such as hierarchical clustering, which are based on connectivity or linkage between observations. The details of the algorithm can be found elsewhere (e.g. Wikipedia), but I find this approach makes intuitive sense since humans typically identify clusters of points visually based on density.
+
+DBSCAN requires two parameters that determine what constitutes a cluster. In particular, clusters are groups of at least minPts
+points that are all connected to each other through links of distance ϵ or less. This algorithm is implemented within the dbscan package.
 
 
 ```{r}
-dens<-dbscan(loc_df[,c(1,2)], eps = 0.002, minPts = 5)
+db<-dbscan(loc_df[,c(1,2)], eps = 0.001, minPts = 5)
 
-base.map %>%
-  addCircleMarkers(
-    ~Longitude, ~Latitude,
-    radius = 5,
-    color = sapply(dens$cluster, function(z) col[z+1]),
-    stroke = FALSE,
-    fillOpacity = 0.5
-)
+# base.map %>%
+#   addCircleMarkers(
+#     ~Longitude, ~Latitude,
+#     radius = 5,
+#     color = sapply(db$cluster, function(z) col[z+1]),
+#     stroke = FALSE,
+#     fillOpacity = 0.5
+# )
+
+n_distinct(db$cluster)
 ```
 
 ```{r include=FALSE}
@@ -132,8 +149,64 @@ base.map %>%
 ```
 
 
+### Aggregating Clusters
 
-## Spatio-Temporal Clustering
+Once clusters have been identified, the next step is to aggregate all the points within the cluster to a single point; it is this point that I’ll eventually plot. I take the mean of the coordinates to represent all the points within the cluster.
+
+```{r}
+# distinct_species <- function(x, countable = FALSE) {
+#   x <- bind_rows(x)
+#   if (countable) {
+#     x <- filter(x, !not_species, !undescribed)
+#   }
+#   n_distinct(x$species)
+# }
+# 
+# cluster_center <- function(x) {
+#   select(x, lon, lat) %>% 
+#     as.matrix %>% 
+#     {if (nrow(.) == 1) . else setNames(data.frame(geomean(.)), c("lon", "lat"))} %>% 
+#     data.frame(.,
+#                n_unique = distinct_species(x$data),
+#                checklists = nrow(x),
+#                days = n_distinct(as.Date(x$datetime)),
+#                arrive = min(x$datetime),
+#                depart = max(x$datetime),
+#                sites = I(list(unique(x$site))),
+#                species = I(list(distinct(bind_rows(x$data)))),
+#                datetimes = I(list(unique(x$datetime))))
+# }
+# 
+# clusters <- group_by(sites, cluster) %>% 
+#   do(cluster_center(.)) %>% 
+#   ungroup %>% 
+#   arrange(arrive, depart) %>%
+#   mutate(species_day = n_unique / days, rn = row_number()) %>% 
+#   rowwise() %>% 
+#   mutate(bigyear = distinct_species(.$species[1:rn], countable = TRUE)) %>% 
+#   select(-rn) %>% 
+#   ungroup
+```
+
+```{r}
+# gc <- transmute(clusters,
+#                 lon_from = lon, lat_from = lat,
+#                 lon_to = lead(lon), lat_to = lead(lat)) %>% 
+#   filter(!is.na(lon_to)) %>% 
+#   {gcIntermediate(select(., lon_from, lat_from),
+#                  select(., lon_to, lat_to),
+#                  n = 360, addStartEnd = TRUE, sp = TRUE)}
+# gc$from_cluster <- clusters$cluster[1:(nrow(clusters) - 1)]
+# gc <- fortify(gc)
+# gc <- clusters %>% 
+#   mutate(id = as.character(cluster)) %>% 
+#   select(id, bigyear) %>% 
+#   left_join(gc, ., by = "id")
+```
+
+
+
+### Spatio-Temporal Clustering
 
 
 
@@ -142,7 +215,17 @@ base.map %>%
 ```
 
 
+## Pros and Cons
 
+1. K-Means
+  + Pros:
+  + Cons:
+2. DBSCAN
+  + Pros:
+  + Cons:
+2. Spatio-Temporal Clustering
+  + Pros:
+  + Cons:
 
 
 
