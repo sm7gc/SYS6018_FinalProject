@@ -1,0 +1,149 @@
+---
+title: "Extracting Semantic Location from GPS Data"
+author: "Sanjana Mendu"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    toc: true
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile,encoding=encoding, output_file='index.html') })
+---
+
+
+```{r global_options, include=FALSE}
+
+knitr::opts_chunk$set(error=TRUE,        # Keep compiling upon error
+                      cache=FALSE,       # don't cache anythin by default
+                      collapse=FALSE,    # collapse by default
+                      echo=TRUE,         # echo code by default
+                      comment = "#>",    # change comment character
+                      fig.align='center',
+                      # fig.width = 5,     # set figure width
+                      # out.width = "50%", # set width of displayed images
+                      warning=FALSE,     # do not show R warnings
+                      message=FALSE)     # do not show R messages
+```
+
+
+## Intro
+
+Location information is crucial for analyzing sensor data and health inferences from mobile and wearable devices. For example, let us say you monitored your stress levels throughout the day and wanted to visualize the data. Location and time is crucial to analyzing the data ---for example, you might detect that stress is highest at work rather than home, or that stress is highest in evenings. 
+
+But how do you take location data, and visualize it in a way that makes it possible for you to draw such conclusions? If you took all the points where you took measurements and plotted it on a map (such as in the figure on the left), it wouldn’t be particularly meaningful. It would be quite useless to tell someone, “You were at 33.93885N, 84.33697W at 5pm on 3/17/2014”.
+
+Clearly, we need a more logical way to find points that an individual might consider significant is to look at where the individual spends her time. For example, the figure on the right shows a logical representation of the location data, where locations have been clustered into logical places. Here, the size of the clusters show how much time you spent in a particular logical place --you spent a lot of time in the CS building and at the Dorm. The lines between the clusters show how you typically moved between places --you typically go from your Dorm to Amherst downtown rather than from the CS department to Amherst downtown. Once you have such a representation, you can overlay the data with information about other parameters like heart rate (higher at the gym, presumably), and so on. But how do we go from the raw data plotted on the left to the logical place representation shown on the right? In this chapter, we provide some ideas on how to cluster raw GPS data into meaningful places.
+
+
+# Intro
+
+
+```{r}
+library(tidyverse)
+library(leaflet)
+library(dbscan)
+```
+
+```{r}
+file_list <- list.files("~/Downloads/Geolife Trajectories 1.3/Data/000/Trajectory", full=T)
+file_con <- lapply(file_list, function(x){
+  return(read.table(x, head=F, quote = "\"", skip = 6, sep = ","))
+})
+df <- do.call(rbind, file_con)[-3]
+colnames(df) <- c("Latitude","Longitude","Altitude","Days.Since.18991230","Date","Time")
+```
+
+```{r, echo=FALSE, results='asis'}
+knitr::kable(head(df, 10)) 
+```
+
+```{r, echo=FALSE}
+num_pts = 500
+loc_df <- tail(df,num_pts)
+```
+
+```{r}
+base.map <- leaflet(data=loc_df) %>% addTiles() %>% addProviderTiles(providers$CartoDB.Positron)
+
+base.map %>%
+  addCircleMarkers(
+    ~Longitude, ~Latitude,
+    radius = 5,
+    stroke = FALSE,
+    fillOpacity = 0.5
+)
+```
+
+
+```{r echo=FALSE}
+library(RColorBrewer)
+col = colorRampPalette(brewer.pal(n = 9, name = "Set1"))(15)
+```
+
+
+## K-Means
+
+```{r}
+kclust <- kmeans(loc_df[,c(1,2)],5)
+```
+
+
+```{r}
+
+base.map %>%
+  addCircleMarkers(
+    ~Longitude, ~Latitude,
+    radius = 5,
+    color = as.vector(sapply(kclust$cluster, function(z) col[z])),
+    stroke = FALSE,
+    fillOpacity = 0.5
+  )
+
+```
+
+```{r include=FALSE}
+# plot(loc_df[,c("lat","lon")], col=clusters$cluster)
+```
+
+
+
+## DBSCAN
+
+
+```{r}
+dens<-dbscan(loc_df[,c(1,2)], eps = 0.002, minPts = 5)
+
+base.map %>%
+  addCircleMarkers(
+    ~Longitude, ~Latitude,
+    radius = 5,
+    color = sapply(dens$cluster, function(z) col[z+1]),
+    stroke = FALSE,
+    fillOpacity = 0.5
+)
+```
+
+```{r include=FALSE}
+# # Cluster assigned as 0 for noise points
+# # points(loc_df[,c("lat","lon")][dens$cluster==0,], pch = 3, col = "grey")
+# 
+# plot(loc_df[,c("lat","lon")], col=dens$cluster)
+# hullplot(loc_df[,c("lat","lon")], dens)
+```
+
+
+
+## Spatio-Temporal Clustering
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+ 
